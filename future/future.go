@@ -1,7 +1,7 @@
 package future
 
-// NewFuture is
-func NewFuture(body func() interface{}) <-chan interface{} {
+// Spawn is
+func Spawn(body func() interface{}) <-chan interface{} {
 	r := make(chan interface{}, 1)
 	go func() {
 		r <- body()
@@ -9,8 +9,8 @@ func NewFuture(body func() interface{}) <-chan interface{} {
 	return r
 }
 
-// JoinFutures is
-func JoinFutures(chans ...<-chan interface{}) <-chan []interface{} {
+// Join is
+func Join(chans ...<-chan interface{}) <-chan []interface{} {
 	r := make(chan []interface{})
 	ra := make([]interface{}, len(chans))
 	go func() {
@@ -22,8 +22,7 @@ func JoinFutures(chans ...<-chan interface{}) <-chan []interface{} {
 	return r
 }
 
-// FirstFuture is
-func FirstFuture(a <-chan interface{}, b <-chan interface{}) <-chan interface{} {
+func firstOfTwo(a <-chan interface{}, b <-chan interface{}) <-chan interface{} {
 	r := make(chan interface{})
 	go func() {
 		select {
@@ -36,11 +35,11 @@ func FirstFuture(a <-chan interface{}, b <-chan interface{}) <-chan interface{} 
 	return r
 }
 
-// FirstFutures is
-func FirstFutures(chans ...<-chan interface{}) <-chan interface{} {
+// First is
+func First(chans ...<-chan interface{}) <-chan interface{} {
 	r := chans[0]
 	for _, c := range chans {
-		r = FirstFuture(r, c)
+		r = firstOfTwo(r, c)
 	}
 	return r
 }
