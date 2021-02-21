@@ -1,45 +1,83 @@
 package future
 
-// Spawn is
-func Spawn(body func() interface{}) <-chan interface{} {
+import "fmt"
+
+type Future struct {
+	calc <-chan interface{}
+}
+
+func (f Future) Get() interface{} {
+	return <-f.calc
+}
+
+// NewFutureValue is
+func NewFutureValue(a interface{}) Future {
+	r := make(chan interface{}, 1)
+	r <- a
+	return Future{calc: r}
+}
+
+// NewFuture is
+func NewFuture(body func() interface{}) Future {
 	r := make(chan interface{}, 1)
 	go func() {
 		r <- body()
 	}()
-	return r
+	return Future{calc: r}
 }
 
 // Join is
-func Join(chans ...<-chan interface{}) <-chan []interface{} {
-	r := make(chan []interface{})
-	ra := make([]interface{}, len(chans))
+func Join(fs ...Future) Future {
+	r := make(chan interface{}, 1)
+	ra := make([]interface{}, len(fs))
 	go func() {
-		for i, c := range chans {
-			ra[i] = <-c
+		for i, f := range fs {
+			ra[i] = <-f.calc
 		}
 		r <- ra
 	}()
-	return r
+	return Future{calc: r}
 }
 
-func firstOfTwo(a <-chan interface{}, b <-chan interface{}) <-chan interface{} {
-	r := make(chan interface{})
+func firstOfTwo(a Future, b Future) Future {
+	r := make(chan interface{}, 1)
 	go func() {
 		select {
-		case a1 := <-a:
+		case a1 := <-a.calc:
 			r <- a1
-		case b1 := <-b:
+		case b1 := <-b.calc:
 			r <- b1
 		}
 	}()
-	return r
+	return Future{calc: r}
 }
 
 // First is
-func First(chans ...<-chan interface{}) <-chan interface{} {
+func First(chans ...Future) Future {
 	r := chans[0]
 	for _, c := range chans {
 		r = firstOfTwo(r, c)
 	}
 	return r
+}
+
+// AndThen is
+func AndThen(f Future, body func(a interface{}) Future) Future {
+	r := make(chan interface{}, 1)
+	go func() {
+		v := <-f.calc
+		fmt.Println("1")
+		v2 := body(v).Get()
+		r <- v2
+	}()
+	return Future{calc: r}
+}
+
+// Map is
+func Map(f Future, body func(a interface{}) interface{}) Future {
+	r := make(chan interface{}, 1)
+	go func() {
+		r <- body(<-f.calc)
+	}()
+	return Future{calc: r}
 }
