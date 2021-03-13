@@ -1,20 +1,31 @@
 package future
 
-import "fmt"
+import (
+	"sync"
+)
 
 type Future struct {
-	calc <-chan interface{}
+	calc     <-chan interface{}
+	result   interface{}
+	isFinish bool
+	guard    sync.Mutex
 }
 
-func (f Future) Get() interface{} {
-	return <-f.calc
+func (f *Future) Get() interface{} {
+	if f.result == nil {
+		f.guard.Lock()
+		f.result = <-f.calc
+		f.isFinish = true
+		f.guard.Unlock()
+	}
+	return f.result
 }
 
 // NewFutureValue is
 func NewFutureValue(a interface{}) Future {
 	r := make(chan interface{}, 1)
 	r <- a
-	return Future{calc: r}
+	return newFutureWithChan(r)
 }
 
 // NewFuture is
@@ -23,61 +34,79 @@ func NewFuture(body func() interface{}) Future {
 	go func() {
 		r <- body()
 	}()
-	return Future{calc: r}
+	return newFutureWithChan(r)
+}
+
+// NewFuture is
+func newFutureWithChan(c chan interface{}) Future {
+	return Future{calc: c}
 }
 
 // Join is
-func Join(fs ...Future) Future {
+func Join(fs ...*Future) Future {
 	r := make(chan interface{}, 1)
 	ra := make([]interface{}, len(fs))
 	go func() {
 		for i, f := range fs {
-			ra[i] = <-f.calc
+			ra[i] = f.Get()
 		}
 		r <- ra
 	}()
-	return Future{calc: r}
+	return newFutureWithChan(r)
 }
 
-func firstOfTwo(a Future, b Future) Future {
+func firstOfTwo(a *Future, b *Future) Future {
 	r := make(chan interface{}, 1)
 	go func() {
-		select {
-		case a1 := <-a.calc:
-			r <- a1
-		case b1 := <-b.calc:
-			r <- b1
+		if a.isFinish {
+			r <- a.result
+		} else if b.isFinish {
+			r <- b.result
+		} else {
+			select {
+			case a1 := <-a.calc:
+				(*a).guard.Lock()
+				(*a).result = a1
+				(*a).isFinish = true
+				(*a).guard.Unlock()
+				r <- a1
+			case b1 := <-b.calc:
+				(*b).guard.Lock()
+				(*b).result = b1
+				(*b).isFinish = true
+				(*b).guard.Unlock()
+				r <- b1
+			}
 		}
 	}()
-	return Future{calc: r}
+	return newFutureWithChan(r)
 }
 
 // First is
-func First(chans ...Future) Future {
-	r := chans[0]
+func First(chans ...*Future) Future {
+	var r Future
 	for _, c := range chans {
-		r = firstOfTwo(r, c)
+		r = firstOfTwo(chans[0], c)
 	}
 	return r
 }
 
 // AndThen is
-func AndThen(f Future, body func(a interface{}) Future) Future {
+func AndThen(f *Future, body func(a interface{}) Future) Future {
 	r := make(chan interface{}, 1)
 	go func() {
-		v := <-f.calc
-		fmt.Println("1")
-		v2 := body(v).Get()
+		vv := body(f.Get())
+		v2 := vv.Get()
 		r <- v2
 	}()
-	return Future{calc: r}
+	return newFutureWithChan(r)
 }
 
 // Map is
-func Map(f Future, body func(a interface{}) interface{}) Future {
+func Map(f *Future, body func(a interface{}) interface{}) Future {
 	r := make(chan interface{}, 1)
 	go func() {
-		r <- body(<-f.calc)
+		r <- body(f.Get())
 	}()
-	return Future{calc: r}
+	return newFutureWithChan(r)
 }

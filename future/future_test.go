@@ -7,7 +7,8 @@ import (
 )
 
 func TestNewFuture(t *testing.T) {
-	result := NewFuture(func() interface{} { return 1 }).Get()
+	f := NewFuture(func() interface{} { return 1 })
+	result := f.Get()
 	expected := 1
 	if result != expected {
 		t.Errorf("expected:%d actual:%d", expected, result)
@@ -15,9 +16,10 @@ func TestNewFuture(t *testing.T) {
 }
 
 func TestJoin(t *testing.T) {
-	result1 := NewFuture(func() interface{} { return 1 })
-	result2 := NewFuture(func() interface{} { return 2 })
-	result := Join(result1, result2).Get()
+	f1 := NewFuture(func() interface{} { return 1 })
+	f2 := NewFuture(func() interface{} { return 2 })
+	f3 := Join(&f1, &f2)
+	result := f3.Get()
 	expected := [2]interface{}{1, 2}
 	if reflect.DeepEqual(result, expected) {
 		t.Errorf("expected:%d actual:%d", expected, result)
@@ -25,28 +27,31 @@ func TestJoin(t *testing.T) {
 }
 
 func TestFirstFuture(t *testing.T) {
-	result1 := NewFuture(func() interface{} { time.Sleep(2 * time.Second); return 1 })
-	result2 := NewFuture(func() interface{} { return 2 })
-	result := First(result1, result2).Get()
+	f1 := NewFuture(func() interface{} { time.Sleep(2 * time.Second); return 1 })
+	f2 := NewFuture(func() interface{} { return 2 })
+	f3 := First(&f1, &f2)
+	result := f3.Get()
 	expected := 2
 
 	if result != expected {
 		t.Errorf("expected:%d actual:%d", expected, result)
 	}
 
-	result1 = NewFuture(func() interface{} { time.Sleep(1 * time.Second); return 1 })
-	result2 = NewFuture(func() interface{} { return 2 })
-	result = First(result2, result1).Get()
+	f1 = NewFuture(func() interface{} { time.Sleep(1 * time.Second); return 1 })
+	f2 = NewFuture(func() interface{} { return 2 })
+	f3 = First(&f1, &f2)
+	result = f3.Get()
 	if result != expected {
 		t.Errorf("expected:%d actual:%d", expected, result)
 	}
 }
 
 func TestFirstFutures(t *testing.T) {
-	result1 := NewFuture(func() interface{} { time.Sleep(2 * time.Second); return 1 })
-	result2 := NewFuture(func() interface{} { time.Sleep(2 * time.Second); return 2 })
-	result3 := NewFuture(func() interface{} { return 3 })
-	result := First(result1, result2, result3).Get()
+	f1 := NewFuture(func() interface{} { time.Sleep(2 * time.Second); return 1 })
+	f2 := NewFuture(func() interface{} { time.Sleep(2 * time.Second); return 2 })
+	f3 := NewFuture(func() interface{} { return 3 })
+	f4 := First(&f1, &f2, &f3)
+	result := f4.Get()
 	expected := 3
 
 	if result != expected {
@@ -55,12 +60,13 @@ func TestFirstFutures(t *testing.T) {
 }
 
 func TestAndThen(t *testing.T) {
-	result1 := NewFuture(func() interface{} { time.Sleep(3 * time.Second); return 1 })
-	result2 := NewFuture(func() interface{} { return 3 })
-	result3 := AndThen(result2, func(a interface{}) Future {
+	f1 := NewFuture(func() interface{} { time.Sleep(3 * time.Second); return 1 })
+	f2 := NewFuture(func() interface{} { return 3 })
+	f3 := AndThen(&f2, func(a interface{}) Future {
 		return NewFutureValue(a)
 	})
-	result := First(result1, result3).Get()
+	f4 := First(&f1, &f3)
+	result := f4.Get()
 	expected := 3
 
 	if result != expected {
@@ -69,12 +75,13 @@ func TestAndThen(t *testing.T) {
 }
 
 func TestMap(t *testing.T) {
-	result1 := NewFuture(func() interface{} { time.Sleep(3 * time.Second); return 1 })
-	result2 := NewFuture(func() interface{} { return 3 })
-	result3 := Map(result2, func(a interface{}) interface{} {
+	f1 := NewFuture(func() interface{} { time.Sleep(3 * time.Second); return 1 })
+	f2 := NewFuture(func() interface{} { return 3 })
+	f3 := Map(&f2, func(a interface{}) interface{} {
 		return a
 	})
-	result := First(result1, result3).Get()
+	f4 := First(&f1, &f3)
+	result := f4.Get()
 	expected := 3
 
 	if result != expected {
@@ -88,8 +95,8 @@ func BenchmarkNewFuture(b *testing.B) {
 		for i := range v {
 			v[i] = NewFuture(func() interface{} { time.Sleep(1 * time.Second); return 1 })
 		}
-		for _, f := range v {
-			f.Get()
+		for i := range v {
+			v[i].Get()
 		}
 	}
 }
