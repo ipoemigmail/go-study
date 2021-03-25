@@ -34,7 +34,8 @@ const 문정동 = "1171010800"
 const 장지동 = "1171010900"
 
 func main() {
-	//svc := service.EstateServiceLive{}
+	limiter := util.GetRateLimiter(100*time.Millisecond, 1)
+	var svc service.EstateService = service.NewEstateServiceWithRateLimiter(limiter, new(service.EstateServiceLive))
 	//regions, err := svc.GetRegionList("1171000000")
 	//if err != nil {
 	//	panic(err)
@@ -47,14 +48,12 @@ func main() {
 
 	result := []AResult{}
 
-	limiter := util.GetRateLimiter(100*time.Millisecond, 1)
-
-	result1 := GetResultList(limiter, 장지동)
-	result2 := GetResultList(limiter, 세곡동)
-	result3 := GetResultList(limiter, 율현동)
-	result4 := GetResultList(limiter, 자곡동)
-	result5 := GetResultList(limiter, 문정동)
-	result6 := GetResultList(limiter, 장지동)
+	result1 := GetResultList(&svc, 세곡동)
+	result2 := GetResultList(&svc, 세곡동)
+	result3 := GetResultList(&svc, 율현동)
+	result4 := GetResultList(&svc, 자곡동)
+	result5 := GetResultList(&svc, 문정동)
+	result6 := GetResultList(&svc, 장지동)
 	result = append(result, result1...)
 	result = append(result, result2...)
 	result = append(result, result3...)
@@ -87,20 +86,36 @@ func main() {
 	}
 }
 
-func GetResultList(limiter <-chan time.Time, regionNo string) []AResult {
-	svc := service.EstateServiceLive{}
-	complexes, err := svc.GetComplexList(regionNo)
-	fmt.Fprintf(os.Stderr, "len: %d\n", len(complexes))
+func ComplexArticleListResultGetter(svc *service.EstateService, complexNo string, minPrice uint, maxPrice uint) (result []service.ComplexArticle, err error) {
+	var page uint = 1
+	result = make([]service.ComplexArticle, 0)
+	for {
+		var iResult service.ComplexArticleListResult
+		iResult, err = (*svc).GetComplexArticleList(complexNo, minPrice, maxPrice, page)
+		if err != nil {
+			return
+		}
+		result = append(result, iResult.List...)
+		if iResult.MoreDataYn == "Y" {
+			page++
+		} else {
+			break
+		}
+	}
+	return result, nil
+}
+
+func GetResultList(svc *service.EstateService, regionNo string) []AResult {
+	complexes, err := (*svc).GetComplexList(regionNo)
+	fmt.Fprintf(os.Stderr, "len: %d\n", len(complexes.Result))
 	util.PanicError(err, "GetResultList Error")
-	chs := make([]chan Result, len(complexes))
-	for i, r := range complexes {
-		//fmt.Printf("%s => %s\n", r.Hscpno, r.Hscpnm)
+	chs := make([]chan Result, len(complexes.Result))
+	for i, r := range complexes.Result {
 		chs[i] = make(chan Result)
 		go func(no string, resultCh chan Result) {
-			<-limiter
-			r, err := svc.GetComplexArticleListWithRateLimit(no, 1100000, 9000000, limiter)
+			r, err := ComplexArticleListResultGetter(svc, no, 1100000, 9000000)
 			resultCh <- Result{value: r, err: err}
-		}(r.Hscpno, chs[i])
+		}(r.HscpNo, chs[i])
 	}
 
 	result := []AResult{}
@@ -112,8 +127,8 @@ func GetResultList(limiter <-chan time.Time, regionNo string) []AResult {
 		}
 		for _, m := range r.value {
 			if filter(&m) {
-				price := parsePrice(m.Prcinfo)
-				result = append(result, AResult{m.Atclno, m.Atclnm, m.Bildnm, m.Flrinfo, m.Spc2, price, m.Cfmymd})
+				price := parsePrice(m.PrcInfo)
+				result = append(result, AResult{m.AtclNo, m.AtclNm, m.BildNm, m.FlrInfo, m.Spc2, price, m.CfmYmd})
 			}
 		}
 	}
@@ -122,11 +137,12 @@ func GetResultList(limiter <-chan time.Time, regionNo string) []AResult {
 }
 
 func filter(c *service.ComplexArticle) bool {
-	return c.Tradtpcd == "A1" &&
-		c.Rlettpcd == "A01" &&
-		!strings.Contains(c.Atclnm, "세곡리엔파크") &&
-		!strings.Contains(c.Atclnm, "강남데시앙파크") &&
-		!strings.Contains(c.Atclnm, "강남신동아파밀리에")
+	return c.TradTpCd == "A1" &&
+		c.RletTpCd == "A01" &&
+		!strings.Contains(c.AtclNm, "세곡리엔파크") &&
+		!strings.Contains(c.AtclNm, "강남데시앙파크") &&
+		!strings.Contains(c.AtclNm, "송파파인타운") &&
+		!strings.Contains(c.AtclNm, "강남신동아파밀리에")
 }
 
 func parsePrice(s string) uint64 {

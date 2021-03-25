@@ -10,109 +10,107 @@ import (
 
 // https://m.land.naver.com/map/getRegionList?cortarNo=1168000000&mycortarNo=
 type RegionListResponse struct {
-	Result struct {
-		List     []Region `json:"list"`
-		Dvsninfo Region   `json:"dvsnInfo"`
-		Cityinfo Region   `json:"cityInfo"`
-	} `json:"result"`
+	Result RegionListResult `json:"result"`
+}
+
+type RegionListResult struct {
+	List     []Region `json:"list"`
+	DvsnInfo Region   `json:"dvsnInfo"`
+	CityInfo Region   `json:"cityInfo"`
 }
 
 type Region struct {
-	Cortarno   string `json:"CortarNo"`
-	Cortarnm   string `json:"CortarNm"`
-	Mapxcrdn   string `json:"MapXCrdn"`
-	Mapycrdn   string `json:"MapYCrdn"`
-	Cortartype string `json:"CortarType"`
+	CortarNo   string `json:"CortarNo"`
+	CortarNm   string `json:"CortarNm"`
+	MapXCrdn   string `json:"MapXCrdn"`
+	MapYCrdn   string `json:"MapYCrdn"`
+	CortarType string `json:"CortarType"`
 }
 
 // https://m.land.naver.com/complex/ajax/complexListByCortarNo?cortarNo=1168010300
-type ComplexListResponse struct {
-	Result  []Complex `json:"result"`
-	Secinfo struct {
-		Cortarno   string `json:"CortarNo"`
-		Cortarnm   string `json:"CortarNm"`
-		Mapxcrdn   string `json:"MapXCrdn"`
-		Mapycrdn   string `json:"MapYCrdn"`
-		Cortartype string `json:"CortarType"`
-	} `json:"secInfo"`
-	Dvsninfo Region `json:"dvsnInfo"`
-	Loginyn  string `json:"loginYN"`
-	Cityinfo Region `json:"cityInfo"`
+type ComplexListResult struct {
+	Result   []Complex `json:"result"`
+	SecInfo  Region    `json:"secInfo"`
+	DvsnInfo Region    `json:"dvsnInfo"`
+	LoginYN  string    `json:"loginYN"`
+	CityInfo Region    `json:"cityInfo"`
 }
 
 type Complex struct {
-	Hscpno      string `json:"hscpNo"`
-	Hscpnm      string `json:"hscpNm"`
-	Hscptypecd  string `json:"hscpTypeCd"`
-	Hscptypenm  string `json:"hscpTypeNm"`
+	HscpNo      string `json:"hscpNo"`
+	HscpNm      string `json:"hscpNm"`
+	HscpTypeCd  string `json:"hscpTypeCd"`
+	HscpTypeNm  string `json:"hscpTypeNm"`
 	Lat         string `json:"lat"`
 	Lng         string `json:"lng"`
-	Cortarno    string `json:"cortarNo"`
-	Dealcnt     int    `json:"dealCnt"`
-	Leasecnt    int    `json:"leaseCnt"`
-	Rentcnt     int    `json:"rentCnt"`
-	Strmrentcnt int    `json:"strmRentCnt"`
-	Hasbookmark int    `json:"hasBookMark"`
+	CortarNo    string `json:"cortarNo"`
+	DealCnt     int    `json:"dealCnt"`
+	LeaseCnt    int    `json:"leaseCnt"`
+	RentCnt     int    `json:"rentCnt"`
+	StrmrentCnt int    `json:"strmRentCnt"`
+	HasBookMark int    `json:"hasBookMark"`
 }
 
 // https://m.land.naver.com/complex/getComplexArticleList?hscpNo=8928&tradTpCd=A1&order=price&showR0=N&page=1
 // https://m.land.naver.com/cluster/clusterList?view=atcl&rletTpCd=OBYG%3AABYG%3AOPST%3AAPT&tradTpCd=A1&z=18&lat=37.47848&lon=127.054031&btm=37.4763855&lft=127.05052&top=37.4805745&rgt=127.057542&dprcMin=110000&dprcMax=900000000&pCortarNo=&addon=COMPLEX&bAddon=COMPLEX&isOnlyIsale=false
 type ComplexArticleListResponse struct {
-	Result struct {
-		List          []ComplexArticle `json:"list"`
-		Totatclcnt    int              `json:"totAtclCnt"`
-		Moredatayn    string           `json:"moreDataYn"`
-		Showguarantee bool             `json:"showGuarantee"`
-	} `json:"result"`
+	Result ComplexArticleListResult `json:"result"`
+}
+
+type ComplexArticleListResult struct {
+	List          []ComplexArticle `json:"list"`
+	TotAtclCnt    int              `json:"totAtclCnt"`
+	MoreDataYn    string           `json:"moreDataYn"`
+	ShowGuarantee bool             `json:"showGuarantee"`
 }
 
 type ComplexArticle struct {
-	Repimgurl         string   `json:"repImgUrl"`
-	Atclno            string   `json:"atclNo"`
-	Repimgtpcd        string   `json:"repImgTpCd"`
-	Vrfctpcd          string   `json:"vrfcTpCd"`
-	Atclnm            string   `json:"atclNm"`
-	Bildnm            string   `json:"bildNm"`
-	Tradtpcd          string   `json:"tradTpCd"`
-	Tradtpnm          string   `json:"tradTpNm"`
-	Rlettpcd          string   `json:"rletTpCd"`
-	Rlettpnm          string   `json:"rletTpNm"`
+	RepimgUrl         string   `json:"repImgUrl"`
+	AtclNo            string   `json:"atclNo"`
+	RepImgTpCd        string   `json:"repImgTpCd"`
+	VrfcTpCd          string   `json:"vrfcTpCd"`
+	AtclNm            string   `json:"atclNm"`
+	BildNm            string   `json:"bildNm"`
+	TradTpCd          string   `json:"tradTpCd"`
+	TradTpNm          string   `json:"tradTpNm"`
+	RletTpCd          string   `json:"rletTpCd"`
+	RletTpNm          string   `json:"rletTpNm"`
 	Spc1              string   `json:"spc1"`
 	Spc2              string   `json:"spc2"`
-	Flrinfo           string   `json:"flrInfo"`
-	Cfmymd            string   `json:"cfmYmd"`
-	Prcinfo           string   `json:"prcInfo"`
-	Sameaddrcnt       int      `json:"sameAddrCnt"`
-	Sameaddrdirectcnt int      `json:"sameAddrDirectCnt"`
-	Sameaddrhash      string   `json:"sameAddrHash"`
-	Sameaddrmaxprc    string   `json:"sameAddrMaxPrc"`
-	Sameaddrminprc    string   `json:"sameAddrMinPrc"`
-	Tradcmplyn        string   `json:"tradCmplYn"`
-	Taglist           []string `json:"tagList"`
-	Atclstatcd        string   `json:"atclStatCd"`
-	Cpid              string   `json:"cpid"`
-	Cpnm              string   `json:"cpNm"`
-	Cpcnt             int      `json:"cpCnt"`
-	Cplinkvo          struct {
-		Cpid                               string `json:"cpId"`
-		Mobilearticlelinktypecode          string `json:"mobileArticleLinkTypeCode"`
-		Mobilebmsinspectpassyn             string `json:"mobileBmsInspectPassYn"`
-		Pcarticlelinkuseatarticletitle     bool   `json:"pcArticleLinkUseAtArticleTitle"`
-		Pcarticlelinkuseatcpname           bool   `json:"pcArticleLinkUseAtCpName"`
-		Mobilearticlelinkuseatarticletitle bool   `json:"mobileArticleLinkUseAtArticleTitle"`
-		Mobilearticlelinkuseatcpname       bool   `json:"mobileArticleLinkUseAtCpName"`
+	FlrInfo           string   `json:"flrInfo"`
+	CfmYmd            string   `json:"cfmYmd"`
+	PrcInfo           string   `json:"prcInfo"`
+	SameAddrCnt       int      `json:"sameAddrCnt"`
+	SameAddrDirectCnt int      `json:"sameAddrDirectCnt"`
+	SameAddrHash      string   `json:"sameAddrHash"`
+	SameAddrMaxPrc    string   `json:"sameAddrMaxPrc"`
+	SameAddrMinPrc    string   `json:"sameAddrMinPrc"`
+	TradCmplYn        string   `json:"tradCmplYn"`
+	TagList           []string `json:"tagList"`
+	AtclStatCd        string   `json:"atclStatCd"`
+	CpId              string   `json:"cpid"`
+	CpNm              string   `json:"cpNm"`
+	CpCnt             int      `json:"cpCnt"`
+	CpLinkVO          struct {
+		CpId                               string `json:"cpId"`
+		MobileArticleLinkTypeCode          string `json:"mobileArticleLinkTypeCode"`
+		MobileBmsInspectPassYn             string `json:"mobileBmsInspectPassYn"`
+		PcArticleLinkUseAtArticleTitle     bool   `json:"pcArticleLinkUseAtArticleTitle"`
+		PcArticleLinkUseAtCpName           bool   `json:"pcArticleLinkUseAtCpName"`
+		MobileArticleLinkUseAtArticleTitle bool   `json:"mobileArticleLinkUseAtArticleTitle"`
+		MobileArticleLinkUseAtCpName       bool   `json:"mobileArticleLinkUseAtCpName"`
 	} `json:"cpLinkVO"`
-	Rltrnm              string `json:"rltrNm"`
-	Directtradyn        string `json:"directTradYn"`
-	Direction           string `json:"direction"`
-	Tradepricehan       string `json:"tradePriceHan"`
-	Traderentprice      int    `json:"tradeRentPrice"`
-	Tradepriceinfo      string `json:"tradePriceInfo"`
-	Tradecheckedbyowner bool   `json:"tradeCheckedByOwner"`
-	Point               int    `json:"point"`
-	Dtladdr             string `json:"dtlAddr"`
-	Dtladdryn           string `json:"dtlAddrYn"`
-	Atclfetrdesc        string `json:"atclFetrDesc,omitempty"`
+	RltrNm              string  `json:"rltrNm"`
+	DirectTradYn        string  `json:"directTradYn"`
+	Direction           string  `json:"direction"`
+	TradePriceHan       string  `json:"tradePriceHan"`
+	TradeRentPrice      int     `json:"tradeRentPrice"`
+	TradePriceInfo      string  `json:"tradePriceInfo"`
+	TradeCheckedByOwner bool    `json:"tradeCheckedByOwner"`
+	Point               int     `json:"point"`
+	DtlAddr             string  `json:"dtlAddr"`
+	DtlAddrYn           string  `json:"dtlAddrYn"`
+	AtclFetrDesc        *string `json:"atclFetrDesc,omitempty"`
 }
 
 type EstateError struct {
@@ -125,109 +123,109 @@ func newEstateError(msg string, from error) EstateError {
 }
 
 func (e EstateError) Error() string {
-	return e.Msg
+	return fmt.Sprintf("%s\nfrom %s", e.Msg, e.From)
 }
 
 type EstateService interface {
-	GetRegionList(parentRegionNo string) ([]Region, error)
-	GetComplexList(regionNo string) ([]Complex, error)
-	GetComplexArticleList(complexNo string) ([]ComplexArticle, error)
+	GetRegionList(parentRegionNo string) (RegionListResult, error)
+	GetComplexList(regionNo string) (ComplexListResult, error)
+	GetComplexArticleList(complexNo string, minPrice uint, maxPrice uint, page uint) (ComplexArticleListResult, error)
 }
 
 type EstateServiceLive struct{}
 
 const baseURL = "https://m.land.naver.com"
 
-func (s *EstateServiceLive) GetRegionList(parentRegionNo string) ([]Region, error) {
+func (s *EstateServiceLive) GetRegionList(parentRegionNo string) (result RegionListResult, err error) {
 	url := fmt.Sprintf("%s/map/getRegionList?cortarNo=%s", baseURL, parentRegionNo)
 	resp, err := http.Get(url)
 	if err != nil {
-		return nil, newEstateError("GetRegionList(http call error)", err)
+		err = newEstateError("GetRegionList(http call error)", err)
+		return
 	}
 	bytes, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return nil, newEstateError("GetRegionList(http body get error)", err)
+		err = newEstateError("GetRegionList(http body get error)", err)
+		return
 	}
 	defer resp.Body.Close()
-	var result RegionListResponse
-	err = json.Unmarshal(bytes, &result)
+	var response RegionListResponse
+	err = json.Unmarshal(bytes, &response)
 	if err != nil {
-		return nil, newEstateError("GetRegionList(http body parse error)", err)
+		err = newEstateError("GetRegionList(http body parse error)", err)
+		return
 	}
-	return result.Result.List, nil
+	result = response.Result
+	return
 }
 
-func (s *EstateServiceLive) GetComplexList(regionNo string) ([]Complex, error) {
+func (s *EstateServiceLive) GetComplexList(regionNo string) (result ComplexListResult, err error) {
 	url := fmt.Sprintf("%s/complex/ajax/complexListByCortarNo?cortarNo=%s", baseURL, regionNo)
 	resp, err := http.Get(url)
 	if err != nil {
-		return nil, newEstateError("GetComplexList(http call error)", err)
+		err = newEstateError("GetComplexList(http call error)", err)
+		return
 	}
 	bytes, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return nil, newEstateError("GetComplexList(http body get error)", err)
+		err = newEstateError("GetComplexList(http body get error)", err)
+		return
 	}
 	defer resp.Body.Close()
-	var result ComplexListResponse
 	err = json.Unmarshal(bytes, &result)
 	if err != nil {
-		return nil, newEstateError("GetComplexList(http body parse error)", err)
+		err = newEstateError("GetComplexList(http body parse error)", err)
+		return
 	}
-	return result.Result, nil
+	return
 }
 
-func (s *EstateServiceLive) getComplexArticleListByPage(complexNo string, minPrice int, maxPrice int, page int) (ComplexArticleListResponse, error) {
-	result := ComplexArticleListResponse{}
+func (s *EstateServiceLive) GetComplexArticleList(complexNo string, minPrice uint, maxPrice uint, page uint) (result ComplexArticleListResult, err error) {
 	url := fmt.Sprintf("%s/complex/getComplexArticleList?hscpNo=%s&tradTpCd=A1&order=price&dprcMin=%d&dprcMax=%d&showR0=N&page=%d", baseURL, complexNo, minPrice, maxPrice, page)
 	resp, err := http.Get(url)
 	if err != nil {
-		return result, newEstateError("getComplexArticleListByPage(http call error)", err)
+		err = newEstateError("GetComplexArticleListByPage(http call error)", err)
+		return
 	}
 	bytes, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return result, newEstateError("getComplexArticleListByPage(http body get error)", err)
+		err = newEstateError("GetComplexArticleListByPage(http body get error)", err)
+		return
 	}
 	defer resp.Body.Close()
-	err = json.Unmarshal(bytes, &result)
+	var response ComplexArticleListResponse
+	err = json.Unmarshal(bytes, &response)
 	if err != nil {
-		return result, newEstateError("getComplexArticleListByPage(http body parse error)", err)
+		err = newEstateError("GetComplexArticleListByPage(http body parse error)", err)
+		return
 	}
-	return result, nil
+	result = response.Result
+	return
 }
 
-func (s *EstateServiceLive) GetComplexArticleList(complexNo string, minPrice int, maxPrice int) ([]ComplexArticle, error) {
-	page := 1
-	result := make([]ComplexArticle, 0)
-	for {
-		response, err := s.getComplexArticleListByPage(complexNo, minPrice, maxPrice, page)
-		if err != nil {
-			return nil, newEstateError("GetComplexArticleList(getComplexArticleListByPage call error)", err)
-		}
-		result = append(result, response.Result.List...)
-		if response.Result.Moredatayn == "Y" {
-			page++
-		} else {
-			break
-		}
-	}
-	return result, nil
+type EstateServiceWithRateLimiter struct {
+	rateLimiter   <-chan time.Time
+	estateService EstateService
 }
 
-func (s *EstateServiceLive) GetComplexArticleListWithRateLimit(complexNo string, minPrice int, maxPrice int, rateLimiter <-chan time.Time) ([]ComplexArticle, error) {
-	page := 1
-	result := make([]ComplexArticle, 0)
-	for {
-		<-rateLimiter
-		response, err := s.getComplexArticleListByPage(complexNo, minPrice, maxPrice, page)
-		if err != nil {
-			return nil, newEstateError("GetComplexArticleList(getComplexArticleListByPage call error)", err)
-		}
-		result = append(result, response.Result.List...)
-		if response.Result.Moredatayn == "Y" {
-			page++
-		} else {
-			break
-		}
+func NewEstateServiceWithRateLimiter(rateLimiter <-chan time.Time, estateService EstateService) *EstateServiceWithRateLimiter {
+	return &EstateServiceWithRateLimiter{
+		rateLimiter,
+		estateService,
 	}
-	return result, nil
+}
+
+func (s *EstateServiceWithRateLimiter) GetRegionList(parentRegionNo string) (result RegionListResult, err error) {
+	<-s.rateLimiter
+	return s.estateService.GetRegionList(parentRegionNo)
+}
+
+func (s *EstateServiceWithRateLimiter) GetComplexList(regionNo string) (result ComplexListResult, err error) {
+	<-s.rateLimiter
+	return s.estateService.GetComplexList(regionNo)
+}
+
+func (s *EstateServiceWithRateLimiter) GetComplexArticleList(complexNo string, minPrice uint, maxPrice uint, page uint) (result ComplexArticleListResult, err error) {
+	<-s.rateLimiter
+	return s.estateService.GetComplexArticleList(complexNo, minPrice, maxPrice, page)
 }
