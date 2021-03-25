@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -61,8 +62,8 @@ type InternalError struct {
 }
 
 // NewInternalError is
-func NewInternalError(msg string, cause error) InternalError {
-	return InternalError{Msg: msg, Cause: cause}
+func NewInternalError(msg string, cause error) *InternalError {
+	return &InternalError{Msg: msg, Cause: cause}
 }
 
 func (e InternalError) Error() string {
@@ -114,24 +115,42 @@ func checkError(err error, msg string) {
 	}
 }
 
-func main() {
-	ticker := time.NewTicker(time.Second * 1)
-	for {
-		<-ticker.C
-		list, err := GetMarketList()
-		checkError(err, "Application Error")
-		marketIDs := make([]string, 0)
-		for _, m := range list {
-			//fmt.Println(m)
-			if strings.HasPrefix(m.Market, "KRW") {
-				marketIDs = append(marketIDs, m.Market)
+func getTickerStream(ctx context.Context) chan []MarketTicker {
+	result := make(chan []MarketTicker)
+	ticker := time.NewTicker(time.Millisecond * 500)
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				list, err := GetMarketList()
+				checkError(err, "Application Error")
+				marketIDs := make([]string, 0)
+				for _, m := range list {
+					//fmt.Println(m)
+					if strings.HasPrefix(m.Market, "KRW") {
+						marketIDs = append(marketIDs, m.Market)
+					}
+				}
+				list2, err := GetMarketTickerList(marketIDs)
+				checkError(err, "Application Error")
+				result <- list2
+				//for _, t := range list2 {
+				//	fmt.Println(t)
+				//}
+			case <-ctx.Done():
 			}
 		}
-		list2, err := GetMarketTickerList(marketIDs)
-		checkError(err, "Application Error")
-		fmt.Printf("cnt: %d", len(list2))
-		//for _, t := range list2 {
-		//	fmt.Println(t)
-		//}
+	}()
+	return result
+}
+
+func main() {
+	//ctx, _ := context.WithCancel(context.Background())
+	ctx := context.Background()
+	tickerStream := getTickerStream(ctx)
+	for {
+		tickers := <-tickerStream
+		ba, _ := json.Marshal(tickers)
+		fmt.Printf("cnt: %d\n", len(ba))
 	}
 }

@@ -1,4 +1,4 @@
-module ipoemi/goupbit
+module ipoemi/go-upbit
 
 go 1.15
 
