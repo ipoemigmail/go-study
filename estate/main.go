@@ -11,11 +11,6 @@ import (
 	"time"
 )
 
-type Result struct {
-	value []service.ComplexArticle
-	err   error
-}
-
 type AResult struct {
 	No          string
 	Name        string
@@ -27,6 +22,7 @@ type AResult struct {
 }
 
 const 개포동 = "1168010300"
+const 수서동 = "1168011500"
 const 세곡동 = "1168011100"
 const 율현동 = "1168011300"
 const 자곡동 = "1168011200"
@@ -34,32 +30,46 @@ const 문정동 = "1171010800"
 const 장지동 = "1171010900"
 
 func main() {
-	limiter := util.GetRateLimiter(100*time.Millisecond, 1)
+	limiter := util.GetRateLimiter(200*time.Millisecond, 1)
 	var svc service.EstateService = service.NewEstateServiceWithRateLimiter(limiter, new(service.EstateServiceLive))
-	//regions, err := svc.GetRegionList("1171000000")
+	//regions, err := svc.GetRegionList("1168000000")
 	//if err != nil {
 	//	panic(err)
 	//}
-	//for _, r := range regions {
-	//	fmt.Printf("%s => %s\n", r.Cortarno, r.Cortarnm)
+	//for _, r := range regions.List {
+	//	fmt.Printf("%s => %s\n", r.CortarNo, r.CortarNm)
 	//}
-
 	//return
 
 	result := []AResult{}
 
-	result1 := GetResultList(&svc, 세곡동)
-	result2 := GetResultList(&svc, 세곡동)
-	result3 := GetResultList(&svc, 율현동)
-	result4 := GetResultList(&svc, 자곡동)
-	result5 := GetResultList(&svc, 문정동)
-	result6 := GetResultList(&svc, 장지동)
-	result = append(result, result1...)
-	result = append(result, result2...)
-	result = append(result, result3...)
-	result = append(result, result4...)
-	result = append(result, result5...)
-	result = append(result, result6...)
+	regionNos := []string{개포동, 수서동, 세곡동, 율현동, 자곡동, 문정동, 장지동}
+
+	complexNoList := make([]string, 0)
+
+	for _, r := range regionNos {
+		//result = append(result, GetResultList(&svc, t)...)
+		complexListResult, err := svc.GetComplexList(r)
+		util.PanicError(err, "GetComplexNoList Error")
+		for _, c := range complexListResult.Result {
+			complexNoList = append(complexNoList, c.HscpNo)
+		}
+	}
+
+	time.Sleep(15 * time.Second)
+
+	for i, no := range complexNoList {
+		if i%10 == 0 {
+			fmt.Fprintf(os.Stderr, "%d start \n", i)
+			time.Sleep(1 * time.Minute)
+		}
+		articles, err := ComplexArticleListResultGetter(&svc, no, 1100000, 9000000)
+		util.PanicError(err, "GetComplexNoList Error")
+		for _, m := range articles {
+			price := parsePrice(m.PrcInfo)
+			result = append(result, AResult{m.AtclNo, m.AtclNm, m.BildNm, m.FlrInfo, m.Spc2, price, m.CfmYmd})
+		}
+	}
 
 	grouped := make(map[string]AResult)
 
@@ -103,46 +113,6 @@ func ComplexArticleListResultGetter(svc *service.EstateService, complexNo string
 		}
 	}
 	return result, nil
-}
-
-func GetResultList(svc *service.EstateService, regionNo string) []AResult {
-	complexes, err := (*svc).GetComplexList(regionNo)
-	fmt.Fprintf(os.Stderr, "len: %d\n", len(complexes.Result))
-	util.PanicError(err, "GetResultList Error")
-	chs := make([]chan Result, len(complexes.Result))
-	for i, r := range complexes.Result {
-		chs[i] = make(chan Result)
-		go func(no string, resultCh chan Result) {
-			r, err := ComplexArticleListResultGetter(svc, no, 1100000, 9000000)
-			resultCh <- Result{value: r, err: err}
-		}(r.HscpNo, chs[i])
-	}
-
-	result := []AResult{}
-
-	for _, c := range chs {
-		r := <-c
-		if r.err != nil {
-			fmt.Fprintf(os.Stderr, "%s", r.err)
-		}
-		for _, m := range r.value {
-			if filter(&m) {
-				price := parsePrice(m.PrcInfo)
-				result = append(result, AResult{m.AtclNo, m.AtclNm, m.BildNm, m.FlrInfo, m.Spc2, price, m.CfmYmd})
-			}
-		}
-	}
-
-	return result
-}
-
-func filter(c *service.ComplexArticle) bool {
-	return c.TradTpCd == "A1" &&
-		c.RletTpCd == "A01" &&
-		!strings.Contains(c.AtclNm, "세곡리엔파크") &&
-		!strings.Contains(c.AtclNm, "강남데시앙파크") &&
-		!strings.Contains(c.AtclNm, "송파파인타운") &&
-		!strings.Contains(c.AtclNm, "강남신동아파밀리에")
 }
 
 func parsePrice(s string) uint64 {
