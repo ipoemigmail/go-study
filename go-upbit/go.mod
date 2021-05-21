@@ -1,7 +1,10 @@
 module ipoemi/go-upbit
 
-go 1.15
+go 1.16
 
-require github.com/goccy/go-json v0.5.0
+require (
+	github.com/goccy/go-json v0.5.1
+	github.com/shopspring/decimal v1.2.0
+)
 
 replace ipoemi/go-upbit/upbit => ipoemi/go-upbit/upbit v0.0.0

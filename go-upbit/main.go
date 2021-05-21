@@ -3,16 +3,18 @@ package main
 import (
 	"context"
 	"fmt"
-	"math/big"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"ipoemi/go-upbit/upbit"
+
+	"github.com/shopspring/decimal"
 )
 
 const BUFFER_SIZE int = 60 * 10
+const DETECTED_RATE float64 = 0.05
 
 func CheckError(err error, msg string) {
 	if err != nil {
@@ -24,19 +26,16 @@ func CheckMarket(ms []upbit.MarketTicker) {
 	if len(ms) >= BUFFER_SIZE {
 		last := ms[len(ms)-1]
 		sort.Slice(ms, func(i, j int) bool {
-			p1 := big.Float(ms[i].TradePrice)
-			p2 := big.Float(ms[j].TradePrice)
-			return p1.Cmp(&p2) < 0
+			p1 := ms[i].TradePrice
+			p2 := ms[j].TradePrice
+			return p1.Cmp(p2) < 0
 		})
 		min := ms[0]
-		lastPrice := big.Float(last.TradePrice)
-		minPrice := big.Float(min.TradePrice)
-		diff := big.NewFloat(0)
-		thresholdPrice := big.NewFloat(0)
-		thresholdPrice.Mul(&lastPrice, big.NewFloat(0.1))
-		diff.Sub(&lastPrice, &minPrice)
-		if thresholdPrice.Cmp(diff) < 0 {
-			fmt.Printf("%s, last: %v, min: %v\n", last.Market, lastPrice, minPrice)
+		lastPrice := last.TradePrice
+		minPrice := min.TradePrice
+		now := time.Now()
+		if lastPrice.Mul(decimal.NewFromFloat(DETECTED_RATE)).Cmp(lastPrice.Sub(minPrice)) < 0 {
+			fmt.Printf("[%v] %s, last: %v, min: %v\n", now, last.Market, lastPrice, minPrice)
 		}
 	}
 }
