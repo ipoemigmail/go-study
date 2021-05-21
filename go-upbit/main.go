@@ -3,127 +3,46 @@ package main
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
-	"net/http"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
-	"math/big"
-
-	//"encoding/json"
-	"github.com/goccy/go-json"
+	"ipoemi/go-upbit/upbit"
 )
 
-// BaseURL is
-const BaseURL = "https://api.upbit.com/v1"
+const BUFFER_SIZE int = 60 * 10
 
-// Market is
-type Market struct {
-	MarketWarning string `json:"market_warning"`
-	Market        string `json:"market"`
-	KoreanName    string `json:"korean_name"`
-	EnglishName   string `json:"english_name"`
-}
-
-// MarketTicker is
-type MarketTicker struct {
-	Market             string    `json:"market"`
-	TradeDate          string    `json:"trade_date"`
-	TradeTime          string    `json:"trade_time"`
-	TradeDateKst       string    `json:"trade_date_kst"`
-	TradeTimeKst       string    `json:"trade_time_kst"`
-	TradeTimestamp     int64     `json:"trade_timestamp"`
-	OpeningPrice       big.Float `json:"opening_price"`
-	HighPrice          big.Float `json:"high_price"`
-	LowPrice           big.Float `json:"low_price"`
-	TradePrice         big.Float `json:"trade_price"`
-	PrevClosingPrice   big.Float `json:"prev_closing_price"`
-	Change             string    `json:"change"`
-	ChangePrice        big.Float `json:"change_price"`
-	ChangeRate         float64   `json:"change_rate"`
-	SignedChangePrice  big.Float `json:"signed_change_price"`
-	SignedChangeRate   float64   `json:"signed_change_rate"`
-	TradeVolume        big.Float `json:"trade_volume"`
-	AccTradePrice      big.Float `json:"acc_trade_price"`
-	AccTradePrice24H   big.Float `json:"acc_trade_price_24h"`
-	AccTradeVolume     big.Float `json:"acc_trade_volume"`
-	AccTradeVolume24H  big.Float `json:"acc_trade_volume_24h"`
-	Highest52WeekPrice big.Float `json:"highest_52_week_price"`
-	Highest52WeekDate  string    `json:"highest_52_week_date"`
-	Lowest52WeekPrice  big.Float `json:"lowest_52_week_price"`
-	Lowest52WeekDate   string    `json:"lowest_52_week_date"`
-	Timestamp          int64     `json:"timestamp"`
-}
-
-// InternalError is
-type InternalError struct {
-	Msg   string
-	Cause error
-}
-
-// NewInternalError is
-func NewInternalError(msg string, cause error) *InternalError {
-	return &InternalError{Msg: msg, Cause: cause}
-}
-
-func (e InternalError) Error() string {
-	return fmt.Sprintf("%s\nCause By %s", e.Msg, e.Cause.Error())
-}
-
-// GetMarketList is
-func GetMarketList() ([]Market, error) {
-	response, err := http.Get(fmt.Sprintf("%s/market/all?isDetails=true", BaseURL))
-	if err != nil {
-		return nil, NewInternalError("GetMarketList Http Error", err)
-	}
-	contents, err := ioutil.ReadAll(response.Body)
-	if err != nil {
-		return nil, NewInternalError("GetMarketList Http Error", err)
-	}
-	defer response.Body.Close()
-	var r []Market
-	err = json.Unmarshal(contents, &r)
-	if err != nil {
-		return nil, NewInternalError("GetMarketList Invalid Json Error", err)
-	}
-	return r, nil
-}
-
-// GetMarketTickerList is
-func GetMarketTickerList(marketIDs []string) ([]MarketTicker, error) {
-	marketsParam := strings.Join(marketIDs, ",")
-	response, err := http.Get(fmt.Sprintf("%s/ticker?markets=%s", BaseURL, marketsParam))
-	if err != nil {
-		return nil, NewInternalError("GetMarketTickerList Http Error", err)
-	}
-	contents, err := ioutil.ReadAll(response.Body)
-	if err != nil {
-		return nil, NewInternalError("GetMarketTickerList Http Error", err)
-	}
-	defer response.Body.Close()
-	var r []MarketTicker
-	err = json.Unmarshal(contents, &r)
-	if err != nil {
-		return nil, NewInternalError("GetMarketTickerList Invalid Json Error", err)
-	}
-	return r, nil
-}
-
-func checkError(err error, msg string) {
+func CheckError(err error, msg string) {
 	if err != nil {
 		panic(fmt.Errorf("%s : Cause By\n%s", msg, err))
 	}
 }
 
-func getTickerStream(ctx context.Context) chan []MarketTicker {
-	result := make(chan []MarketTicker)
-	ticker := time.NewTicker(time.Millisecond * 500)
+func CheckMarket(ms []upbit.MarketTicker) {
+	if len(ms) >= BUFFER_SIZE {
+		last := ms[len(ms)-1]
+		sort.Slice(ms, func(i, j int) bool {
+			return ms[i].TradePrice < ms[j].TradePrice
+		})
+		min := ms[0]
+		diff := last.TradePrice - min.TradePrice
+		if last.TradePrice*0.1 < diff {
+			fmt.Printf("%s, last: %f, min: %f\n", last.Market, last.TradePrice, min.TradePrice)
+		}
+	}
+}
+
+func GetTickerStream(ctx context.Context) chan []upbit.MarketTicker {
+	result := make(chan []upbit.MarketTicker)
+	ticker := time.NewTicker(time.Second * 1)
 	go func() {
-		for {
+		end := false
+		for !end {
 			select {
 			case <-ticker.C:
-				list, err := GetMarketList()
-				checkError(err, "Application Error")
+				list, err := upbit.GetMarketList()
+				CheckError(err, "Application Error")
 				marketIDs := make([]string, 0)
 				for _, m := range list {
 					//fmt.Println(m)
@@ -131,13 +50,11 @@ func getTickerStream(ctx context.Context) chan []MarketTicker {
 						marketIDs = append(marketIDs, m.Market)
 					}
 				}
-				list2, err := GetMarketTickerList(marketIDs)
-				checkError(err, "Application Error")
+				list2, err := upbit.GetMarketTickerList(marketIDs)
+				CheckError(err, "Application Error")
 				result <- list2
-				//for _, t := range list2 {
-				//	fmt.Println(t)
-				//}
 			case <-ctx.Done():
+				end = true
 			}
 		}
 	}()
@@ -147,10 +64,27 @@ func getTickerStream(ctx context.Context) chan []MarketTicker {
 func main() {
 	//ctx, _ := context.WithCancel(context.Background())
 	ctx := context.Background()
-	tickerStream := getTickerStream(ctx)
+	tickerStream := GetTickerStream(ctx)
+	buffer := make(map[string][]upbit.MarketTicker)
 	for {
 		tickers := <-tickerStream
-		ba, _ := json.Marshal(tickers)
-		fmt.Printf("cnt: %d\n", len(ba))
+		wg := new(sync.WaitGroup)
+		for _, ticker := range tickers {
+			b := buffer[ticker.Market]
+			if b == nil {
+				b = make([]upbit.MarketTicker, 0, BUFFER_SIZE)
+			}
+			if len(b) > BUFFER_SIZE {
+				b = b[1:]
+			}
+			b = append(b, ticker)
+			buffer[ticker.Market] = b
+			wg.Add(1)
+			go func() {
+				CheckMarket(b)
+				defer wg.Done()
+			}()
+		}
+		wg.Wait()
 	}
 }
