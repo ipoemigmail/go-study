@@ -8,3 +8,4 @@ require (
 )
 
 replace ipoemi/go-upbit/upbit => ipoemi/go-upbit/upbit v0.0.0
+replace ipoemi/go-upbit/strategy => ipoemi/go-upbit/strategy v0.0.0
