@@ -107,11 +107,11 @@ func ToMap(ms []upbit.MarketTicker) map[string]*upbit.MarketTicker {
 func GetMarketTickerToSell(wallet trade.Wallet, history History, minMax MinMax) []upbit.MarketTicker {
 	result := make([]upbit.MarketTicker, 0)
 	lastMarketMap := ToMap(history.GetLastMarketTickers())
-	for k, v := range wallet.TickerMap {
+	for k := range wallet.TickerMap {
 		maxPrice := minMax[k].Max.TradePrice
 		lastPrice := lastMarketMap[k].TradePrice
 		if maxPrice.Mul(ONE_DECIMAL.Sub(LOSE_RATE)).Cmp(lastPrice) > 0 {
-			result = append(result, v.MarketTicker)
+			result = append(result, *lastMarketMap[k])
 		}
 	}
 	return result
