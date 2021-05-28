@@ -1,9 +1,7 @@
-package strategy
+package trade
 
 import (
-	"fmt"
 	"ipoemi/go-upbit/upbit"
-	"time"
 
 	"github.com/shopspring/decimal"
 )
@@ -27,8 +25,6 @@ func (s *FivePercentDecStrategy) CheckMarket(ms []upbit.MarketTicker) bool {
 	lastPrice := last.TradePrice
 	minPrice := min.TradePrice
 	if minPrice.Mul(DETECTED_RATE).Cmp(lastPrice.Sub(minPrice)) < 0 {
-		now := time.Now()
-		fmt.Printf("[%v] FivePercetDecStrategy - Buy / %s, last: %v, min: %v\n", now, last.Market, lastPrice, minPrice)
 		return true
 	} else {
 		return false

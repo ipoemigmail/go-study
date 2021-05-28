@@ -1,55 +1,49 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
-	"ipoemi/go-upbit/strategy"
+	"ipoemi/go-upbit/trade"
 	"ipoemi/go-upbit/upbit"
+
+	"golang.org/x/text/language"
+	"golang.org/x/text/message"
 
 	"github.com/shopspring/decimal"
 )
 
-const BUFFER_SIZE int = 60 * 10
+const BUFFER_SIZE int = 60 * 3
 
-var LOSE_RATE decimal.Decimal = decimal.NewFromFloat(0.05)
-var ONE_DECIMAL decimal.Decimal = decimal.NewFromFloat(1.0)
+var LOSE_RATE = decimal.NewFromFloat(0.05)
+var ONE_DECIMAL = decimal.NewFromFloat(1.0)
+var BUY_UNIT = decimal.NewFromFloat(100_000)
+var WALLET_START = decimal.NewFromFloat(1_000_000)
 
-type BuyItem struct {
-	MarketTicker upbit.MarketTicker
-	BuyPrice     decimal.Decimal
-}
-
-func NewBuyItem(m upbit.MarketTicker) *BuyItem {
-	return &BuyItem{
-		MarketTicker: m,
-		BuyPrice:     m.TradePrice,
-	}
-}
+var CurrencyPrinter = message.NewPrinter(language.English)
 
 type History map[string][]upbit.MarketTicker
-type Wallet struct {
-	Amount    decimal.Decimal
-	TickerMap map[string]*BuyItem
+type MinMax map[string]*struct {
+	Min upbit.MarketTicker
+	Max upbit.MarketTicker
 }
 
-func NewWallet() *Wallet {
-	return &Wallet{
-		Amount:    decimal.NewFromFloat(0),
-		TickerMap: make(map[string]*BuyItem),
+func (h *History) GetLastMarketTickers() []upbit.MarketTicker {
+	result := make([]upbit.MarketTicker, 0)
+	for _, v := range *h {
+		if len(v) > 0 {
+			result = append(result, v[len(v)-1])
+		}
 	}
+	return result
 }
 
-func CheckError(err error, msg string) {
-	if err != nil {
-		panic(fmt.Errorf("%s : Cause By\n%s", msg, err))
-	}
-}
-
-func GetMarketsToWallet(mss [][]upbit.MarketTicker, wallet Wallet, strategies []strategy.BuyStrategy) []upbit.MarketTicker {
+func GetMarketsToBuy(mss [][]upbit.MarketTicker, wallet *trade.Wallet, strategies []trade.BuyStrategy) []upbit.MarketTicker {
 	chs := make([]chan *upbit.MarketTicker, 0)
 	for _, ms := range mss {
 		if len(ms) > BUFFER_SIZE && wallet.TickerMap[ms[0].Market] == nil {
@@ -77,20 +71,12 @@ func GetMarketsToWallet(mss [][]upbit.MarketTicker, wallet Wallet, strategies []
 	return result
 }
 
-func UpdateWallet(wallet Wallet, ms []upbit.MarketTicker) Wallet {
-	result := wallet
+func SendBuyMessagesToWallet(wallet *trade.Wallet, history History, ms []upbit.MarketTicker) {
 	for _, v := range ms {
-		result.TickerMap[v.Market] = NewBuyItem(v)
+		if wallet.Amount.Cmp(BUY_UNIT) >= 0 {
+			<-wallet.Buy(v, BUY_UNIT.Div(v.TradePrice))
+		}
 	}
-	return result
-}
-
-func GetValues(m map[string][]upbit.MarketTicker) [][]upbit.MarketTicker {
-	result := make([][]upbit.MarketTicker, 0)
-	for _, v := range m {
-		result = append(result, v)
-	}
-	return result
 }
 
 func UpdateHistory(history History, tickers []upbit.MarketTicker) History {
@@ -109,38 +95,66 @@ func UpdateHistory(history History, tickers []upbit.MarketTicker) History {
 	return result
 }
 
-func GetLastMarketMap(history History) map[string]*upbit.MarketTicker {
+func ToMap(ms []upbit.MarketTicker) map[string]*upbit.MarketTicker {
 	result := make(map[string]*upbit.MarketTicker)
-	for k, v := range history {
-		if len(v) > 0 {
-			result[k] = &v[len(v)-1]
+	for _, m := range ms {
+		m1 := m
+		result[m.Market] = &m1
+	}
+	return result
+}
+
+func GetMarketTickerToSell(wallet trade.Wallet, history History, minMax MinMax) []upbit.MarketTicker {
+	result := make([]upbit.MarketTicker, 0)
+	lastMarketMap := ToMap(history.GetLastMarketTickers())
+	for k, v := range wallet.TickerMap {
+		maxPrice := minMax[k].Max.TradePrice
+		lastPrice := lastMarketMap[k].TradePrice
+		if maxPrice.Mul(ONE_DECIMAL.Sub(LOSE_RATE)).Cmp(lastPrice) > 0 {
+			result = append(result, v.MarketTicker)
 		}
 	}
 	return result
 }
 
-func ProcessWallet(wallet Wallet, history History) Wallet {
-	result := wallet
-	lastMap := GetLastMarketMap(history)
-	toSell := make([]BuyItem, 0)
-	for k, v := range result.TickerMap {
-		checkedPrice := v.MarketTicker.TradePrice
-		lastPrice := lastMap[k].TradePrice
-		if checkedPrice.Mul(ONE_DECIMAL.Sub(LOSE_RATE)).Cmp(lastPrice) > 0 {
-			toSell = append(toSell, *v)
-		} else if lastPrice.Cmp(checkedPrice) > 0 {
-			v.MarketTicker = *lastMap[k]
+func UpdateMinMaxForBuying(minMax *MinMax, wallet trade.Wallet, history History) {
+	lastMarketTickerMap := ToMap(history.GetLastMarketTickers())
+	for k := range wallet.TickerMap {
+		if (*minMax)[k] == nil {
+			(*minMax)[k] = &struct {
+				Min upbit.MarketTicker
+				Max upbit.MarketTicker
+			}{
+				Min: *lastMarketTickerMap[k],
+				Max: *lastMarketTickerMap[k],
+			}
+		} else {
+			item := (*minMax)[k]
+			maxPrice := item.Max.TradePrice
+			minPrice := item.Min.TradePrice
+			lastPrice := lastMarketTickerMap[k].TradePrice
+			if lastPrice.Cmp(maxPrice) > 0 {
+				(*minMax)[k].Max = *lastMarketTickerMap[k]
+			}
+			if lastPrice.Cmp(minPrice) < 0 {
+				(*minMax)[k].Min = *lastMarketTickerMap[k]
+			}
 		}
 	}
-	for _, m := range toSell {
-		buyingPrice := m.BuyPrice
-		lastPrice := lastMap[m.MarketTicker.Market].TradePrice
-		now := time.Now()
-		result.Amount = result.Amount.Add(lastPrice.Sub(buyingPrice))
-		fmt.Printf("[%v] Sell / %s, sell: %v, buy: %v, wallet: %v\n", now, m.MarketTicker.Market, lastPrice, buyingPrice, result.Amount)
-		delete(result.TickerMap, m.MarketTicker.Market)
+}
+
+func UpdateMinMaxForSelling(minMax *MinMax, sellMarketTickers []upbit.MarketTicker) {
+	for _, v := range sellMarketTickers {
+		if (*minMax)[v.Market] != nil {
+			delete((*minMax), v.Market)
+		}
 	}
-	return result
+}
+
+func SendSellMessageToWallet(wallet *trade.Wallet, ms []upbit.MarketTicker) {
+	for _, m := range ms {
+		<-wallet.Sell(m)
+	}
 }
 
 func GetTickerStream(ctx context.Context) chan []upbit.MarketTicker {
@@ -152,7 +166,11 @@ func GetTickerStream(ctx context.Context) chan []upbit.MarketTicker {
 			select {
 			case <-ticker.C:
 				list, err := upbit.GetMarketList()
-				CheckError(err, "Application Error")
+				if err != nil {
+					fmt.Fprintln(os.Stderr, err.Error())
+					time.Sleep(1 * time.Second)
+					continue
+				}
 				marketIDs := make([]string, 0)
 				for _, m := range list {
 					if strings.HasPrefix(m.Market, "KRW") {
@@ -160,7 +178,11 @@ func GetTickerStream(ctx context.Context) chan []upbit.MarketTicker {
 					}
 				}
 				list2, err := upbit.GetMarketTickerList(marketIDs)
-				CheckError(err, "Application Error")
+				if err != nil {
+					fmt.Fprintln(os.Stderr, err.Error())
+					time.Sleep(1 * time.Second)
+					continue
+				}
 				result <- list2
 			case <-ctx.Done():
 				end = true
@@ -170,21 +192,55 @@ func GetTickerStream(ctx context.Context) chan []upbit.MarketTicker {
 	return result
 }
 
+func GetValues(m map[string][]upbit.MarketTicker) [][]upbit.MarketTicker {
+	result := make([][]upbit.MarketTicker, 0)
+	for _, v := range m {
+		result = append(result, v)
+	}
+	return result
+}
+
+func Run(ctx context.Context, wg *sync.WaitGroup, wallet *trade.Wallet, history *History, minMax *MinMax) {
+	defer wg.Done()
+	tickerStream := GetTickerStream(ctx)
+
+	strategies := make([]trade.BuyStrategy, 0)
+	strategies = append(strategies, &trade.FivePercentDecStrategy{})
+	wallet.ProcessMessage(ctx)
+
+	for tickers := range tickerStream {
+		*history = UpdateHistory(*history, tickers)
+		marketsToBuy := GetMarketsToBuy(GetValues(*history), wallet, strategies)
+		SendBuyMessagesToWallet(wallet, *history, marketsToBuy)
+		UpdateMinMaxForBuying(minMax, *wallet, *history)
+		marketsToSell := GetMarketTickerToSell(*wallet, *history, *minMax)
+		SendSellMessageToWallet(wallet, marketsToSell)
+		UpdateMinMaxForSelling(minMax, marketsToSell)
+	}
+}
+
 func main() {
 	fmt.Fprintf(os.Stderr, "start go-upbit\n")
 	ctx := context.Background()
-	tickerStream := GetTickerStream(ctx)
-
-	strategies := make([]strategy.BuyStrategy, 0)
-	strategies = append(strategies, &strategy.FivePercentDecStrategy{})
-
+	wallet := trade.NewWallet(WALLET_START)
 	history := make(History)
-	wallet := *NewWallet()
+	minMax := make(MinMax)
+	wg := new(sync.WaitGroup)
+	go Run(ctx, wg, wallet, &history, &minMax)
+
 	for {
-		tickers := <-tickerStream
-		history = UpdateHistory(history, tickers)
-		targets := GetMarketsToWallet(GetValues(history), wallet, strategies)
-		wallet = UpdateWallet(wallet, targets)
-		wallet = ProcessWallet(wallet, history)
+		reader := bufio.NewReader(os.Stdin)
+		fmt.Print("Enter CMD: ")
+		cmd, _ := reader.ReadString('\n')
+		cmd = strings.Replace(cmd, "\n", "", -1)
+
+		switch cmd {
+		case "w", "wallet":
+			lastMarketMap := ToMap(history.GetLastMarketTickers())
+			fmt.Println(wallet.Summary(lastMarketMap))
+		case "":
+		default:
+			CurrencyPrinter.Printf("Wrong CMD (%v)\n", cmd)
+		}
 	}
 }
