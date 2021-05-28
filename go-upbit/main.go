@@ -28,6 +28,33 @@ var WALLET_START = decimal.NewFromFloat(1_000_000)
 var CurrencyPrinter = message.NewPrinter(language.English)
 
 type History map[string][]upbit.MarketTicker
+
+func (h History) Summary() string {
+	var maxTs int64 = 0
+	for _, v := range h {
+		if len(v) > 0 {
+			last := v[len(v)-1]
+			if last.Timestamp > maxTs {
+				maxTs = last.Timestamp
+			}
+		}
+	}
+	tm := time.Unix(maxTs/1000, 0)
+	return fmt.Sprintf("%d MarketTicker, Last Update: %s", len(h), tm)
+}
+
+func (h History) AllSummary() string {
+	resultBuilder := make([]string, 0)
+	for _, v := range h {
+		if len(v) > 0 {
+			last := v[len(v)-1]
+			tm := time.Unix(last.Timestamp/1000, 0).Format(time.RFC3339)
+			resultBuilder = append(resultBuilder, fmt.Sprintf("%v: %v (%s)", last.Market, last.TradePrice, tm))
+		}
+	}
+	return strings.Join(resultBuilder, "\n")
+}
+
 type MinMax map[string]*struct {
 	Min upbit.MarketTicker
 	Max upbit.MarketTicker
@@ -219,6 +246,16 @@ func Run(ctx context.Context, wg *sync.WaitGroup, wallet *trade.Wallet, history 
 	}
 }
 
+func ShowHelp() {
+	cmds := []string{
+		" h (history): show history summary",
+		" ah (allhistory): show all history",
+		" w (wallet): show wallet",
+		" ?: show all commands",
+	}
+	fmt.Println(strings.Join(cmds, "\n"))
+}
+
 func main() {
 	fmt.Fprintf(os.Stderr, "start go-upbit\n")
 	ctx := context.Background()
@@ -230,17 +267,31 @@ func main() {
 
 	for {
 		reader := bufio.NewReader(os.Stdin)
-		fmt.Print("Enter CMD: ")
+		println()
+		fmt.Print("Enter CMD (Help: ?): ")
 		cmd, _ := reader.ReadString('\n')
 		cmd = strings.Replace(cmd, "\n", "", -1)
 
 		switch cmd {
 		case "w", "wallet":
+			println()
 			lastMarketMap := ToMap(history.GetLastMarketTickers())
 			fmt.Println(wallet.Summary(lastMarketMap))
+		case "h", "history":
+			println()
+			fmt.Println(history.Summary())
+		case "ah", "allhistory":
+			println()
+			fmt.Println(history.AllSummary())
+		case "?":
+			println()
+			ShowHelp()
 		case "":
 		default:
-			CurrencyPrinter.Printf("Wrong CMD (%v)\n", cmd)
+			println()
+			CurrencyPrinter.Printf("'%s' is Wrong Command\n", cmd)
+			println()
+			ShowHelp()
 		}
 	}
 }
