@@ -3,6 +3,7 @@ package trade
 import (
 	"context"
 	"ipoemi/go-upbit/upbit"
+	"sort"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 )
 
 var CurrencyPrinter = message.NewPrinter(language.English)
+var FeeRate = decimal.NewFromFloat(0.05 / 100)
 
 type BuyItem struct {
 	MarketTicker upbit.MarketTicker
@@ -42,12 +44,39 @@ type WalletSellMessage struct {
 	Sender       *chan error
 }
 
-func NewWallet(amount decimal.Decimal) *Wallet {
-	return &Wallet{
+func NewWallet(ctx context.Context, amount decimal.Decimal) *Wallet {
+	w := &Wallet{
 		Amount:       amount,
 		TickerMap:    make(map[string]*BuyItem),
 		MessageQueue: make(chan interface{}),
 	}
+
+	go func() {
+		done := false
+		for !done {
+			select {
+			case m := <-w.MessageQueue:
+				switch v := m.(type) {
+				case WalletBuyMessage:
+					w.TickerMap[v.MarketTicker.MarketName] = NewBuyItem(v.MarketTicker, v.Quantity)
+					feePrice := v.MarketTicker.TradePrice.Mul(v.Quantity).Mul(FeeRate)
+					w.Amount = w.Amount.Sub(v.MarketTicker.TradePrice.Mul(v.Quantity)).Sub(feePrice)
+					*v.Sender <- nil
+				case WalletSellMessage:
+					buyItem := w.TickerMap[v.MarketTicker.MarketName]
+					lastPrice := v.MarketTicker.TradePrice
+					earnPrice := buyItem.Quantity.Mul(lastPrice)
+					feePrice := earnPrice.Mul(FeeRate)
+					w.Amount = w.Amount.Add(earnPrice).Sub(feePrice)
+					delete(w.TickerMap, v.MarketTicker.MarketName)
+					*v.Sender <- nil
+				}
+			case <-ctx.Done():
+				done = true
+			}
+		}
+	}()
+	return w
 }
 
 func (w *Wallet) Buy(m upbit.MarketTicker, quantity decimal.Decimal) chan error {
@@ -65,7 +94,7 @@ func (w *Wallet) Sell(m upbit.MarketTicker) chan error {
 func (w Wallet) AllAmount(lastMarketMap map[string]*upbit.MarketTicker) decimal.Decimal {
 	tickerAmount := decimal.Zero
 	for _, v := range w.TickerMap {
-		tickerAmount = tickerAmount.Add(v.Quantity.Mul(lastMarketMap[v.MarketTicker.Market].TradePrice))
+		tickerAmount = tickerAmount.Add(v.Quantity.Mul(lastMarketMap[v.MarketTicker.MarketName].TradePrice))
 	}
 	return w.Amount.Add(tickerAmount)
 }
@@ -80,55 +109,22 @@ func (w Wallet) Summary(lastMarketMap map[string]*upbit.MarketTicker) string {
 	resultAmount = resultAmount.Add(w.Amount)
 	fAmount, _ := w.Amount.Float64()
 	resultBuilder = append(resultBuilder, CurrencyPrinter.Sprintf("- Amount: %f", fAmount))
+	resultBuilderForItem := make([]string, 0)
 	for _, v := range w.TickerMap {
-		marketAmount := v.Quantity.Mul(lastMarketMap[v.MarketTicker.Market].TradePrice)
+		buyPrice := v.MarketTicker.TradePrice
+		fBuyPrice, _ := buyPrice.Float64()
+		marketAmount := v.Quantity.Mul(lastMarketMap[v.MarketTicker.MarketName].TradePrice)
 		resultAmount = resultAmount.Add(marketAmount)
+		fLastPrice, _ := lastMarketMap[v.MarketTicker.MarketName].TradePrice.Float64()
 		fMarketAmount, _ := marketAmount.Float64()
-		resultBuilder = append(resultBuilder, CurrencyPrinter.Sprintf("- %s Amount: %f", v.MarketTicker.Market, fMarketAmount))
+		resultBuilderForItem = append(resultBuilderForItem, CurrencyPrinter.Sprintf("- %s Amount: %f (Buy: %f, Cur: %f)", v.MarketTicker.MarketName, fMarketAmount, fBuyPrice, fLastPrice))
 	}
+	sort.Slice(resultBuilderForItem, func(i, j int) bool {
+		return resultBuilderForItem[i] < resultBuilderForItem[j]
+	})
+	resultBuilder = append(resultBuilder, resultBuilderForItem...)
 	resultBuilder = append(resultBuilder, "==================================================================")
 	fResultAmount, _ := resultAmount.Float64()
 	resultBuilder = append(resultBuilder, CurrencyPrinter.Sprintf(" Total Amout: %f", fResultAmount))
 	return strings.Join(resultBuilder, "\n")
-}
-
-func (w *Wallet) ProcessMessage(ctx context.Context) {
-	go func() {
-		done := false
-		for !done {
-			select {
-			case m := <-w.MessageQueue:
-				switch v := m.(type) {
-				case WalletBuyMessage:
-					w.TickerMap[v.MarketTicker.Market] = NewBuyItem(v.MarketTicker, v.Quantity)
-					w.Amount = w.Amount.Sub(v.MarketTicker.TradePrice.Mul(v.Quantity))
-
-					fTradePrice, _ := v.MarketTicker.TradePrice.Float64()
-					now := time.Now().Format(time.RFC3339)
-					CurrencyPrinter.Printf("[%s] Buy / %s, Last: %f\n", now, v.MarketTicker.Market, fTradePrice)
-
-					*v.Sender <- nil
-
-				case WalletSellMessage:
-					buyItem := w.TickerMap[v.MarketTicker.Market]
-					buyingPrice := buyItem.MarketTicker.TradePrice
-					lastPrice := v.MarketTicker.TradePrice
-					earnPrice := buyItem.Quantity.Mul(lastPrice)
-					w.Amount = w.Amount.Add(earnPrice)
-					delete(w.TickerMap, v.MarketTicker.Market)
-
-					changePrice := buyItem.Quantity.Mul(lastPrice.Sub(buyingPrice))
-					fLastPrice, _ := lastPrice.Float64()
-					fBuyingPrice, _ := buyingPrice.Float64()
-					fChangePrice, _ := changePrice.Float64()
-					now := time.Now().Format(time.RFC3339)
-					CurrencyPrinter.Printf("[%s] Sell / %s, Sell: %f, Buy: %f (%f)\n", now, v.MarketTicker.Market, fLastPrice, fBuyingPrice, fChangePrice)
-
-					*v.Sender <- nil
-				}
-			case <-ctx.Done():
-				done = true
-			}
-		}
-	}()
 }

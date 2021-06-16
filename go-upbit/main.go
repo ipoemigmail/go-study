@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"ipoemi/go-upbit/trade"
+	"ipoemi/go-upbit/trade/strategy"
 	"ipoemi/go-upbit/upbit"
 
 	"golang.org/x/text/language"
@@ -18,9 +18,9 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-const BUFFER_SIZE int = 60 * 3
+const BUFFER_SIZE int = 60 * 1
 
-var LOSE_RATE = decimal.NewFromFloat(0.05)
+var LOSE_RATE = decimal.NewFromFloat(0.025)
 var ONE_DECIMAL = decimal.NewFromFloat(1.0)
 var BUY_UNIT = decimal.NewFromFloat(100_000)
 var WALLET_START = decimal.NewFromFloat(1_000_000)
@@ -49,7 +49,21 @@ func (h History) AllSummary() string {
 		if len(v) > 0 {
 			last := v[len(v)-1]
 			tm := time.Unix(last.Timestamp/1000, 0).Format(time.RFC3339)
-			resultBuilder = append(resultBuilder, fmt.Sprintf("%v: %v (%s)", last.Market, last.TradePrice, tm))
+			resultBuilder = append(resultBuilder, fmt.Sprintf("%v: %v (%s)", last.MarketName, last.TradePrice, tm))
+		}
+	}
+	return strings.Join(resultBuilder, "\n")
+}
+
+type MinuteCandles map[string][]upbit.MarketCandle
+
+func (m MinuteCandles) Summary() string {
+	resultBuilder := make([]string, 0)
+	for _, v := range m {
+		if len(v) > 0 {
+			last := v[len(v)-1]
+			tm := time.Unix(last.Timestamp/1000, 0).Format(time.RFC3339)
+			resultBuilder = append(resultBuilder, fmt.Sprintf("%v: %v (%s)", last.MarketName, last.TradePrice, tm))
 		}
 	}
 	return strings.Join(resultBuilder, "\n")
@@ -70,25 +84,54 @@ func (h *History) GetLastMarketTickers() []upbit.MarketTicker {
 	return result
 }
 
-func GetMarketsToBuy(mss [][]upbit.MarketTicker, wallet *trade.Wallet, strategies []trade.BuyStrategy) []upbit.MarketTicker {
+func GetValues(m map[string][]upbit.MarketTicker) [][]upbit.MarketTicker {
+	result := make([][]upbit.MarketTicker, 0)
+	for _, v := range m {
+		result = append(result, v)
+	}
+	return result
+}
+
+func ToMap(ms []upbit.MarketTicker) map[string]*upbit.MarketTicker {
+	result := make(map[string]*upbit.MarketTicker)
+	for _, m := range ms {
+		m1 := m
+		result[m.MarketName] = &m1
+	}
+	return result
+}
+
+func GetLast(tickers []upbit.MarketTicker) *upbit.MarketTicker {
+	if len(tickers) > 0 {
+		return &tickers[len(tickers)-1]
+	} else {
+		return nil
+	}
+}
+
+func GetMarketsToBuy(history History, wallet *trade.Wallet, strategies []strategy.BuyStrategy) []upbit.MarketTicker {
 	chs := make([]chan *upbit.MarketTicker, 0)
-	for _, ms := range mss {
-		if len(ms) > BUFFER_SIZE && wallet.TickerMap[ms[0].Market] == nil {
+	result := make([]upbit.MarketTicker, 0, len(history))
+	if wallet.Amount.Cmp(BUY_UNIT) < 0 {
+		return result
+	}
+	for marketName := range history {
+		if len(history[marketName]) > 2 {
 			ch := make(chan *upbit.MarketTicker)
 			chs = append(chs, ch)
-			go func(ms []upbit.MarketTicker, c chan *upbit.MarketTicker) {
+			go func(marketName string, c chan *upbit.MarketTicker) {
+				defer close(c)
 				var result *upbit.MarketTicker = nil
 				for _, s := range strategies {
-					if s.CheckMarket(ms) {
-						result = &ms[len(ms)-1]
+					if s.CheckMarket(marketName) {
+						result = GetLast(history[marketName])
 						break
 					}
 				}
 				c <- result
-			}(ms, ch)
+			}(marketName, ch)
 		}
 	}
-	result := make([]upbit.MarketTicker, 0, BUFFER_SIZE)
 	for _, ch := range chs {
 		m := <-ch
 		if m != nil {
@@ -101,7 +144,12 @@ func GetMarketsToBuy(mss [][]upbit.MarketTicker, wallet *trade.Wallet, strategie
 func SendBuyMessagesToWallet(wallet *trade.Wallet, history History, ms []upbit.MarketTicker) {
 	for _, v := range ms {
 		if wallet.Amount.Cmp(BUY_UNIT) >= 0 {
+			fTradePrice, _ := v.TradePrice.Float64()
+			now := time.Now().Format(time.RFC3339)
+			CurrencyPrinter.Printf("[%s] Buy / %s, Last: %f\n", now, v.MarketName, fTradePrice)
 			<-wallet.Buy(v, BUY_UNIT.Div(v.TradePrice))
+		} else {
+			break
 		}
 	}
 }
@@ -109,7 +157,7 @@ func SendBuyMessagesToWallet(wallet *trade.Wallet, history History, ms []upbit.M
 func UpdateHistory(history History, tickers []upbit.MarketTicker) History {
 	result := history
 	for _, ticker := range tickers {
-		historyOfTicker := result[ticker.Market]
+		historyOfTicker := result[ticker.MarketName]
 		if historyOfTicker == nil {
 			historyOfTicker = make([]upbit.MarketTicker, 0, BUFFER_SIZE)
 		}
@@ -117,28 +165,43 @@ func UpdateHistory(history History, tickers []upbit.MarketTicker) History {
 			historyOfTicker = historyOfTicker[1:]
 		}
 		historyOfTicker = append(historyOfTicker, ticker)
-		result[ticker.Market] = historyOfTicker
+		result[ticker.MarketName] = historyOfTicker
 	}
 	return result
 }
 
-func ToMap(ms []upbit.MarketTicker) map[string]*upbit.MarketTicker {
-	result := make(map[string]*upbit.MarketTicker)
-	for _, m := range ms {
-		m1 := m
-		result[m.Market] = &m1
+func GetMarketTickerToSell(wallet trade.Wallet, history History, minMax MinMax, strategies []strategy.SellStrategy) []upbit.MarketTicker {
+	chs := make([]chan *upbit.MarketTicker, 0)
+	for marketName := range history {
+		ch := make(chan *upbit.MarketTicker)
+		chs = append(chs, ch)
+		go func(marketName string, c chan *upbit.MarketTicker) {
+			defer close(c)
+			var result *upbit.MarketTicker = nil
+			for _, s := range strategies {
+				if s.CheckMarket(marketName) {
+					result = GetLast(history[marketName])
+					break
+				}
+			}
+			c <- result
+		}(marketName, ch)
 	}
-	return result
-}
+	result := make([]upbit.MarketTicker, 0, len(history))
+	for _, ch := range chs {
+		m := <-ch
+		if m != nil {
+			buyItem := wallet.TickerMap[m.MarketName]
+			buyingPrice := buyItem.MarketTicker.TradePrice
+			lastPrice := history[m.MarketName][len(history[m.MarketName])-1].TradePrice
+			changePrice := buyItem.Quantity.Mul(lastPrice.Sub(buyingPrice))
+			fLastPrice, _ := lastPrice.Float64()
+			fBuyingPrice, _ := buyingPrice.Float64()
+			fChangePrice, _ := changePrice.Float64()
+			now := time.Now().Format(time.RFC3339)
+			CurrencyPrinter.Printf("[%s] Sell / %s, Sell: %f, Buy: %f (%f)\n", now, m.MarketName, fLastPrice, fBuyingPrice, fChangePrice)
 
-func GetMarketTickerToSell(wallet trade.Wallet, history History, minMax MinMax) []upbit.MarketTicker {
-	result := make([]upbit.MarketTicker, 0)
-	lastMarketMap := ToMap(history.GetLastMarketTickers())
-	for k := range wallet.TickerMap {
-		maxPrice := minMax[k].Max.TradePrice
-		lastPrice := lastMarketMap[k].TradePrice
-		if maxPrice.Mul(ONE_DECIMAL.Sub(LOSE_RATE)).Cmp(lastPrice) > 0 {
-			result = append(result, *lastMarketMap[k])
+			result = append(result, *m)
 		}
 	}
 	return result
@@ -172,8 +235,8 @@ func UpdateMinMaxForBuying(minMax *MinMax, wallet trade.Wallet, history History)
 
 func UpdateMinMaxForSelling(minMax *MinMax, sellMarketTickers []upbit.MarketTicker) {
 	for _, v := range sellMarketTickers {
-		if (*minMax)[v.Market] != nil {
-			delete((*minMax), v.Market)
+		if (*minMax)[v.MarketName] != nil {
+			delete((*minMax), v.MarketName)
 		}
 	}
 }
@@ -187,62 +250,128 @@ func SendSellMessageToWallet(wallet *trade.Wallet, ms []upbit.MarketTicker) {
 func GetTickerStream(ctx context.Context) chan []upbit.MarketTicker {
 	result := make(chan []upbit.MarketTicker)
 	ticker := time.NewTicker(time.Second * 1)
+
+	process := func() error {
+		ctx1, cancel1 := context.WithTimeout(ctx, time.Second*1)
+		list, err := upbit.GetMarketList(ctx1)
+		defer cancel1()
+		if err != nil {
+			return err
+		}
+		marketIds := make([]string, 0)
+		for _, m := range list {
+			if strings.HasPrefix(m.MarketName, "KRW") {
+				marketIds = append(marketIds, m.MarketName)
+			}
+		}
+		ctx2, cancel2 := context.WithTimeout(ctx, time.Second*1)
+		defer cancel2()
+		list2, err := upbit.GetMarketTickerList(ctx2, marketIds)
+		if err != nil {
+			return err
+		}
+		select {
+		case result <- list2:
+		case <-ctx.Done():
+		}
+		return nil
+	}
+
 	go func() {
-		end := false
-		for !end {
+		defer close(result)
+		defer ticker.Stop()
+
+		for {
 			select {
 			case <-ticker.C:
-				list, err := upbit.GetMarketList()
+				err := process()
 				if err != nil {
 					fmt.Fprintln(os.Stderr, err.Error())
 					time.Sleep(1 * time.Second)
-					continue
 				}
-				marketIDs := make([]string, 0)
-				for _, m := range list {
-					if strings.HasPrefix(m.Market, "KRW") {
-						marketIDs = append(marketIDs, m.Market)
-					}
-				}
-				list2, err := upbit.GetMarketTickerList(marketIDs)
-				if err != nil {
-					fmt.Fprintln(os.Stderr, err.Error())
-					time.Sleep(1 * time.Second)
-					continue
-				}
-				result <- list2
 			case <-ctx.Done():
-				end = true
+				return
 			}
 		}
 	}()
 	return result
 }
 
-func GetValues(m map[string][]upbit.MarketTicker) [][]upbit.MarketTicker {
-	result := make([][]upbit.MarketTicker, 0)
-	for _, v := range m {
-		result = append(result, v)
+func GetCandleStream(ctx context.Context) chan []upbit.MarketCandle {
+	result := make(chan []upbit.MarketCandle)
+	ticker := time.NewTicker(time.Second * 30)
+
+	process := func() error {
+		ctx1, cancel1 := context.WithTimeout(ctx, time.Second*1)
+		list, err := upbit.GetMarketList(ctx1)
+		defer cancel1()
+		if err != nil {
+			return err
+		}
+		marketIds := make([]string, 0)
+		for _, m := range list {
+			if strings.HasPrefix(m.MarketName, "KRW") {
+				marketIds = append(marketIds, m.MarketName)
+			}
+		}
+		for _, marketId := range marketIds {
+			ctx2, cancel2 := context.WithTimeout(ctx, time.Second*2)
+			list2, err := upbit.GetMinuteMarketCandleList(ctx2, marketId, 1, nil, 30)
+			defer cancel2()
+			if err != nil {
+				return err
+			}
+			select {
+			case result <- list2:
+			case <-ctx.Done():
+			}
+		}
+		return nil
 	}
+
+	go func() {
+		defer close(result)
+		defer ticker.Stop()
+		process()
+		for {
+			select {
+			case <-ticker.C:
+				err := process()
+				if err != nil {
+					fmt.Fprintln(os.Stderr, err.Error())
+					time.Sleep(15 * time.Second)
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 	return result
 }
 
-func Run(ctx context.Context, wg *sync.WaitGroup, wallet *trade.Wallet, history *History, minMax *MinMax) {
-	defer wg.Done()
+func Run(ctx context.Context, wallet *trade.Wallet, history *History, minuteCandles *MinuteCandles, minMax *MinMax) {
 	tickerStream := GetTickerStream(ctx)
+	candleStream := GetCandleStream(ctx)
 
-	strategies := make([]trade.BuyStrategy, 0)
-	strategies = append(strategies, &trade.FivePercentDecStrategy{})
-	wallet.ProcessMessage(ctx)
-
-	for tickers := range tickerStream {
-		*history = UpdateHistory(*history, tickers)
-		marketsToBuy := GetMarketsToBuy(GetValues(*history), wallet, strategies)
-		SendBuyMessagesToWallet(wallet, *history, marketsToBuy)
-		UpdateMinMaxForBuying(minMax, *wallet, *history)
-		marketsToSell := GetMarketTickerToSell(*wallet, *history, *minMax)
-		SendSellMessageToWallet(wallet, marketsToSell)
-		UpdateMinMaxForSelling(minMax, marketsToSell)
+	buyStrategies := make([]strategy.BuyStrategy, 1)
+	sellStrategies := make([]strategy.SellStrategy, 1)
+	for {
+		select {
+		case candles := <-candleStream:
+			(*minuteCandles)[candles[0].MarketName] = candles
+		case tickers := <-tickerStream:
+			buyStrategies[0] = strategy.NewRsiBuyStrategy(*history, *wallet, *minuteCandles)
+			sellStrategies[0] = strategy.NewRsiSellStrategy(*history, *wallet, *minuteCandles)
+			*history = UpdateHistory(*history, tickers)
+			marketsToBuy := GetMarketsToBuy(*history, wallet, buyStrategies)
+			SendBuyMessagesToWallet(wallet, *history, marketsToBuy)
+			UpdateMinMaxForBuying(minMax, *wallet, *history)
+			marketsToSell := GetMarketTickerToSell(*wallet, *history, *minMax, sellStrategies)
+			SendSellMessageToWallet(wallet, marketsToSell)
+			UpdateMinMaxForSelling(minMax, marketsToSell)
+		case <-ctx.Done():
+			return
+		}
 	}
 }
 
@@ -258,12 +387,14 @@ func ShowHelp() {
 
 func main() {
 	fmt.Fprintf(os.Stderr, "start go-upbit\n")
-	ctx := context.Background()
-	wallet := trade.NewWallet(WALLET_START)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	wallet := trade.NewWallet(ctx, WALLET_START)
 	history := make(History)
+	minuteCandles := make(MinuteCandles)
 	minMax := make(MinMax)
-	wg := new(sync.WaitGroup)
-	go Run(ctx, wg, wallet, &history, &minMax)
+	go Run(ctx, wallet, &history, &minuteCandles, &minMax)
 
 	for {
 		reader := bufio.NewReader(os.Stdin)
@@ -283,6 +414,9 @@ func main() {
 		case "ah", "allhistory":
 			println()
 			fmt.Println(history.AllSummary())
+		case "m", "minuteCandles":
+			println()
+			fmt.Println(minuteCandles.Summary())
 		case "?":
 			println()
 			ShowHelp()
