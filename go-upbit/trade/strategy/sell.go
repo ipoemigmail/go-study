@@ -1,8 +1,11 @@
 package strategy
 
 import (
+	"fmt"
 	"ipoemi/go-upbit/trade"
 	"ipoemi/go-upbit/upbit"
+	"strings"
+	"time"
 
 	"github.com/shopspring/decimal"
 )
@@ -43,7 +46,8 @@ func (s *DefaultSellStrategy) CheckMarket(marketName string) bool {
 	return result
 }
 
-var RSI_SELL_THRESHOLD float64 = 0.7
+var RSI_WIN_SELL_THRESHOLD float64 = 0.7
+var RSI_LOSE_SELL_THRESHOLD float64 = 0.10
 
 type RsiSellStrategy struct {
 	history       map[string][]upbit.MarketTicker
@@ -64,13 +68,26 @@ func (s *RsiSellStrategy) CheckMarket(marketName string) bool {
 	if s.wallet.TickerMap[marketName] != nil {
 		candles := s.minuteCandles[marketName]
 		candlePrices := make([]decimal.Decimal, len(candles))
-		for _, candle := range candles {
-			candlePrices = append(candlePrices, candle.TradePrice)
+		for i := range candles {
+			candlePrices[i] = candles[i].TradePrice
 		}
-		prevRsi := trade.GetRsi(candlePrices[:])
-		lastPrice := s.history[marketName][len(s.history[marketName])-1].TradePrice
-		curRsi := trade.GetRsi(append(candlePrices[1:], lastPrice))
-		if prevRsi > RSI_SELL_THRESHOLD && curRsi <= RSI_SELL_THRESHOLD {
+		lastMarketTicker := s.history[marketName][len(s.history[marketName])-1]
+		lastPrice := lastMarketTicker.TradePrice
+		lastTradeTime := time.Unix(lastMarketTicker.TradeTimestamp/1000, lastMarketTicker.TradeTimestamp%1000)
+		nowPriceMinuteStr := lastTradeTime.Format(time.RFC3339)[:16]
+		lastCandleMinuteStr := candles[len(candles)-1].CandleDateTimeUtc[:16]
+		if strings.HasPrefix(nowPriceMinuteStr, lastCandleMinuteStr) {
+			candlePrices[len(candles)-1] = lastPrice
+		} else {
+			candlePrices = append(candlePrices[1:], lastPrice)
+		}
+		prevRsi := trade.GetRsi(candlePrices[:len(candles)-1])
+		curRsi := trade.GetRsi(candlePrices[1:])
+		if prevRsi > RSI_WIN_SELL_THRESHOLD && curRsi <= RSI_WIN_SELL_THRESHOLD {
+			fmt.Printf("%v: %f => %f\n", marketName, prevRsi, curRsi)
+			result = true
+		} else if curRsi < RSI_LOSE_SELL_THRESHOLD {
+			fmt.Printf("%v: %f => %f\n", marketName, prevRsi, curRsi)
 			result = true
 		}
 	}

@@ -73,8 +73,12 @@ func (s *RsiBuyStrategy) CheckMarket(marketName string) bool {
 		for i := range candles {
 			candlePrices[i] = candles[i].TradePrice
 		}
-		lastPrice := s.history[marketName][len(s.history[marketName])-1].TradePrice
-		if strings.HasPrefix(time.Now().UTC().Format(time.RFC3339), candles[len(candles)-1].CandleDateTimeUtc) {
+		lastMarketTicker := s.history[marketName][len(s.history[marketName])-1]
+		lastPrice := lastMarketTicker.TradePrice
+		lastTradeTime := time.Unix(lastMarketTicker.TradeTimestamp/1000, lastMarketTicker.TradeTimestamp%1000)
+		nowPriceMinuteStr := lastTradeTime.Format(time.RFC3339)[:16]
+		lastCandleMinuteStr := candles[len(candles)-1].CandleDateTimeUtc[:16]
+		if strings.HasPrefix(nowPriceMinuteStr, lastCandleMinuteStr) {
 			candlePrices[len(candles)-1] = lastPrice
 		} else {
 			candlePrices = append(candlePrices[1:], lastPrice)

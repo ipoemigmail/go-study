@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -22,7 +23,7 @@ const BUFFER_SIZE int = 60 * 1
 
 var LOSE_RATE = decimal.NewFromFloat(0.025)
 var ONE_DECIMAL = decimal.NewFromFloat(1.0)
-var BUY_UNIT = decimal.NewFromFloat(100_000)
+var BUY_UNIT = decimal.NewFromFloat(50_000)
 var WALLET_START = decimal.NewFromFloat(1_000_000)
 
 var CurrencyPrinter = message.NewPrinter(language.English)
@@ -66,6 +67,9 @@ func (m MinuteCandles) Summary() string {
 			resultBuilder = append(resultBuilder, fmt.Sprintf("%v: %v (%s)", last.MarketName, last.TradePrice, tm))
 		}
 	}
+	sort.Slice(resultBuilder, func(i, j int) bool {
+		return resultBuilder[i] < resultBuilder[j]
+	})
 	return strings.Join(resultBuilder, "\n")
 }
 
@@ -380,6 +384,7 @@ func ShowHelp() {
 		" h (history): show history summary",
 		" ah (allhistory): show all history",
 		" w (wallet): show wallet",
+		" m : minute candles",
 		" ?: show all commands",
 	}
 	fmt.Println(strings.Join(cmds, "\n"))

@@ -177,7 +177,7 @@ func GetMarketTickerList(ctx context.Context, marketIDs []string) ([]MarketTicke
 
 var lastLimit string
 
-// GetMarketCandleList is
+// GetMinuteMarketCandleList is
 func GetMinuteMarketCandleList(ctx context.Context, marketId string, unit int, to *time.Time, count int) ([]MarketCandle, error) {
 	rateLimiterPerSecond["candles"].Wait(ctx)
 	rateLimiterPerMinute["candles"].Wait(ctx)
